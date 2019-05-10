@@ -8,6 +8,8 @@
 
 #pragma once
 
+//#include "resource.h"
+
 const float DEFAULT_DPI = 96.f;   // Default DPI that maps image resolution directly to screen resoltuion
 
 /******************************************************************
