@@ -23,7 +23,7 @@ public:
 	DemoApp();
 	~DemoApp();
 
-	HRESULT Initialize(HINSTANCE hInstance);
+	void Initialize(HINSTANCE hInstance);
 
 private:
 
@@ -35,26 +35,26 @@ private:
 		DM_PREVIOUS = 3
 	};
 
-	HRESULT CreateDeviceResources();
-	HRESULT RecoverDeviceResources();
+	void CreateDeviceResources();
+	void RecoverDeviceResources();
 
-	HRESULT OnResize(UINT uWidth, UINT uHeight);
-	HRESULT OnRender();
+	void OnResize(UINT uWidth, UINT uHeight);
+	void OnRender();
 
 	bool    GetFileOpen(WCHAR* pszFileName, DWORD cchFileName);
-	HRESULT SelectAndDisplayGif();
+	void SelectAndDisplayGif();
 
-	HRESULT GetRawFrame(UINT uFrameIndex);
-	HRESULT GetGlobalMetadata();
-	HRESULT GetBackgroundColor(IWICMetadataQueryReader* pMetadataQueryReader);
+	void GetRawFrame(UINT uFrameIndex);
+	void GetGlobalMetadata();
+	void GetBackgroundColor(IWICMetadataQueryReader* pMetadataQueryReader);
 
-	HRESULT ComposeNextFrame();
-	HRESULT DisposeCurrentFrame();
-	HRESULT OverlayNextFrame();
+	void ComposeNextFrame();
+	void DisposeCurrentFrame();
+	void OverlayNextFrame();
 
-	HRESULT SaveComposedFrame();
-	HRESULT RestoreSavedFrame();
-	HRESULT ClearCurrentFrameArea();
+	void SaveComposedFrame();
+	void RestoreSavedFrame();
+	void ClearCurrentFrameArea();
 
 	bool IsLastFrame()
 	{
@@ -66,7 +66,7 @@ private:
 		return m_fHasLoop && IsLastFrame() && m_uLoopNumber == m_uTotalLoopCount + 1;
 	}
 
-	HRESULT CalculateDrawRectangle(D2D1_RECT_F& drawRect);
+	void CalculateDrawRectangle(D2D1_RECT_F& drawRect);
 
 	LRESULT WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK s_WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);

@@ -18,6 +18,8 @@
 
 using namespace winrt;
 
+#define EXTRA_GIF_DELAY 0
+
 const UINT DELAY_TIMER_ID = 1;    // Global ID for the timer, only one timer is used
 
 // Utility inline functions
@@ -83,27 +85,20 @@ int WINAPI wWinMain(
 
 	HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
 
-	HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-	if (SUCCEEDED(hr))
-	{
-		{
-			DemoApp app;
-			hr = app.Initialize(hInstance);
-			if (SUCCEEDED(hr))
-			{
-				// Main message loop:
-				MSG msg;
-				while (GetMessage(&msg, nullptr, 0, 0))
-				{
-					TranslateMessage(&msg);
-					DispatchMessage(&msg);
-				}
-			}
-		}
+	check_hresult(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
 
-		CoUninitialize();
+	DemoApp app;
+	app.Initialize(hInstance);
+
+	// Main message loop:
+	MSG msg;
+	while (GetMessage(&msg, nullptr, 0, 0))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
 	}
 
+	CoUninitialize();
 	return 0;
 }
 
@@ -139,7 +134,7 @@ DemoApp::~DemoApp()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::Initialize(HINSTANCE hInstance)
+void DemoApp::Initialize(HINSTANCE hInstance)
 {
 	// Register window class
 	WNDCLASSEX wcex = {};
@@ -147,7 +142,7 @@ HRESULT DemoApp::Initialize(HINSTANCE hInstance)
 	wcex.style = CS_HREDRAW | CS_VREDRAW;
 	wcex.lpfnWndProc = DemoApp::s_WndProc;
 	wcex.cbClsExtra = 0;
-	//wcex.cbWndExtra = sizeof(LONG_PTR);
+	wcex.cbWndExtra = sizeof(LONG_PTR);
 	wcex.hInstance = hInstance;
 	wcex.hIcon = nullptr;
 	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -156,53 +151,34 @@ HRESULT DemoApp::Initialize(HINSTANCE hInstance)
 	wcex.lpszClassName = L"WICANIMATEDGIF";
 	wcex.hIconSm = nullptr;
 
-	HRESULT hr = (RegisterClassEx(&wcex) == 0) ? E_FAIL : S_OK;
+	WINRT_VERIFY(RegisterClassEx(&wcex));
 
-	if (SUCCEEDED(hr))
-	{
-		// Create D2D factory
-		hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.put());
-	}
+	// Create D2D factory
+	check_hresult(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.put()));
 
-	if (SUCCEEDED(hr))
-	{
-		// Create WIC factory
-		hr = CoCreateInstance(
-			CLSID_WICImagingFactory,
-			nullptr,
-			CLSCTX_INPROC_SERVER,
-			IID_PPV_ARGS(m_wicFactory.put()));
-	}
+	// Create WIC factory
+	check_hresult(CoCreateInstance(
+		CLSID_WICImagingFactory,
+		nullptr,
+		CLSCTX_INPROC_SERVER,
+		IID_PPV_ARGS(m_wicFactory.put())));
 
-	if (SUCCEEDED(hr))
-	{
-		// Create window
-		m_hWnd = CreateWindow(
-			L"WICANIMATEDGIF",
-			L"WIC Animated Gif Sample",
-			WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-			CW_USEDEFAULT,
-			CW_USEDEFAULT,
-			CW_USEDEFAULT,
-			CW_USEDEFAULT,
-			nullptr,
-			nullptr,
-			hInstance,
-			this);
+	// Create window
+	m_hWnd = CreateWindow(
+		L"WICANIMATEDGIF",
+		L"WIC Animated Gif Sample",
+		WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		nullptr,
+		nullptr,
+		hInstance,
+		this);
+	WINRT_VERIFY(m_hWnd);
 
-		hr = (m_hWnd == nullptr) ? E_FAIL : S_OK;
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		hr = SelectAndDisplayGif();
-		if (FAILED(hr))
-		{
-			DestroyWindow(m_hWnd);
-		}
-	}
-
-	return hr;
+	SelectAndDisplayGif();
 }
 
 /******************************************************************
@@ -214,59 +190,49 @@ HRESULT DemoApp::Initialize(HINSTANCE hInstance)
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::CreateDeviceResources()
+void DemoApp::CreateDeviceResources()
 {
-	HRESULT hr = S_OK;
-
 	RECT rcClient;
 	if (!GetClientRect(m_hWnd, &rcClient))
 	{
-		hr = HRESULT_FROM_WIN32(GetLastError());
+		throw_last_error();
 	}
 
-	if (SUCCEEDED(hr))
+	if (m_hwndRT == nullptr)
 	{
-		if (m_hwndRT == nullptr)
-		{
-			auto renderTargetProperties = D2D1::RenderTargetProperties();
+		auto renderTargetProperties = D2D1::RenderTargetProperties();
 
-			// Set the DPI to be the default system DPI to allow direct mapping
-			// between image pixels and desktop pixels in different system DPI settings
-			renderTargetProperties.dpiX = DEFAULT_DPI;
-			renderTargetProperties.dpiY = DEFAULT_DPI;
+		// Set the DPI to be the default system DPI to allow direct mapping
+		// between image pixels and desktop pixels in different system DPI settings
+		renderTargetProperties.dpiX = DEFAULT_DPI;
+		renderTargetProperties.dpiY = DEFAULT_DPI;
 
-			auto hwndRenderTargetproperties
-				= D2D1::HwndRenderTargetProperties(m_hWnd,
-					D2D1::SizeU(RectWidth(rcClient), RectHeight(rcClient)));
+		auto hwndRenderTargetproperties
+			= D2D1::HwndRenderTargetProperties(m_hWnd,
+				D2D1::SizeU(RectWidth(rcClient), RectHeight(rcClient)));
 
-			hr = m_d2dFactory->CreateHwndRenderTarget(
-				renderTargetProperties,
-				hwndRenderTargetproperties,
-				m_hwndRT.put());
-		}
-		else
-		{
-			// We already have a hwnd render target, resize it to the window size
-			D2D1_SIZE_U size;
-			size.width = RectWidth(rcClient);
-			size.height = RectHeight(rcClient);
-			hr = m_hwndRT->Resize(size);
-		}
+		check_hresult(m_d2dFactory->CreateHwndRenderTarget(
+			renderTargetProperties,
+			hwndRenderTargetproperties,
+			m_hwndRT.put()));
 	}
-
-	if (SUCCEEDED(hr))
+	else
 	{
-		// Create a bitmap render target used to compose frames. Bitmap render 
-		// targets cannot be resized, so we always recreate it.
-		m_frameComposeRT = nullptr;
-		hr = m_hwndRT->CreateCompatibleRenderTarget(
-			D2D1::SizeF(
-				static_cast<float>(m_cxGifImage),
-				static_cast<float>(m_cyGifImage)),
-			m_frameComposeRT.put());
+		// We already have a hwnd render target, resize it to the window size
+		D2D1_SIZE_U size;
+		size.width = RectWidth(rcClient);
+		size.height = RectHeight(rcClient);
+		check_hresult(m_hwndRT->Resize(size));
 	}
 
-	return hr;
+	// Create a bitmap render target used to compose frames. Bitmap render 
+	// targets cannot be resized, so we always recreate it.
+	m_frameComposeRT = nullptr;
+	check_hresult(m_hwndRT->CreateCompatibleRenderTarget(
+		D2D1::SizeF(
+			static_cast<float>(m_cxGifImage),
+			static_cast<float>(m_cyGifImage)),
+		m_frameComposeRT.put()));
 }
 
 /******************************************************************
@@ -281,43 +247,31 @@ HRESULT DemoApp::CreateDeviceResources()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::OnRender()
+void DemoApp::OnRender()
 {
-	HRESULT hr = S_OK;
 	com_ptr<ID2D1Bitmap> frameToRender;
 
 	// Check to see if the render targets are initialized
 	if (m_hwndRT && m_frameComposeRT)
 	{
-		if (SUCCEEDED(hr))
+		// Only render when the window is not occluded
+		if (!(m_hwndRT->CheckWindowState() & D2D1_WINDOW_STATE_OCCLUDED))
 		{
-			// Only render when the window is not occluded
-			if (!(m_hwndRT->CheckWindowState() & D2D1_WINDOW_STATE_OCCLUDED))
-			{
-				D2D1_RECT_F drawRect;
-				hr = CalculateDrawRectangle(drawRect);
+			D2D1_RECT_F drawRect;
+			CalculateDrawRectangle(drawRect);
 
-				if (SUCCEEDED(hr))
-				{
-					// Get the bitmap to draw on the hwnd render target
-					hr = m_frameComposeRT->GetBitmap(frameToRender.put());
-				}
+			// Get the bitmap to draw on the hwnd render target
+			check_hresult(m_frameComposeRT->GetBitmap(frameToRender.put()));
 
-				if (SUCCEEDED(hr))
-				{
-					// Draw the bitmap onto the calculated rectangle
-					m_hwndRT->BeginDraw();
+			// Draw the bitmap onto the calculated rectangle
+			m_hwndRT->BeginDraw();
 
-					m_hwndRT->Clear(D2D1::ColorF(D2D1::ColorF::Black));
-					m_hwndRT->DrawBitmap(frameToRender.get(), drawRect);
+			m_hwndRT->Clear(D2D1::ColorF(D2D1::ColorF::Black));
+			m_hwndRT->DrawBitmap(frameToRender.get(), drawRect);
 
-					hr = m_hwndRT->EndDraw();
-				}
-			}
+			check_hresult(m_hwndRT->EndDraw());
 		}
 	}
-
-	return hr;
 }
 
 /******************************************************************
@@ -356,19 +310,15 @@ bool DemoApp::GetFileOpen(WCHAR* pszFileName, DWORD cchFileName)
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::OnResize(UINT uWidth, UINT uHeight)
+void DemoApp::OnResize(UINT uWidth, UINT uHeight)
 {
-	HRESULT hr = S_OK;
-
 	if (m_hwndRT)
 	{
 		D2D1_SIZE_U size;
 		size.width = uWidth;
 		size.height = uHeight;
-		hr = m_hwndRT->Resize(size);
+		check_hresult(m_hwndRT->Resize(size));
 	}
-
-	return hr;
 }
 
 /******************************************************************
@@ -427,86 +377,96 @@ LRESULT DemoApp::WndProc(
 	WPARAM wParam,
 	LPARAM lParam)
 {
-	HRESULT hr = S_OK;
-
-	switch (uMsg)
+	try
 	{
-	/*
-	case WM_COMMAND:
-	{
-		// Parse the menu selections
-		switch (LOWORD(wParam))
+		switch (uMsg)
 		{
-		case IDM_FILE:
-			hr = SelectAndDisplayGif();
-			if (FAILED(hr))
+			/*
+			case WM_COMMAND:
 			{
-				MessageBox(hWnd, L"Load gif file failed. Exiting application.", L"Error", MB_OK);
-				PostQuitMessage(1);
-				return 1;
+				// Parse the menu selections
+				switch (LOWORD(wParam))
+				{
+				case IDM_FILE:
+					hr = SelectAndDisplayGif();
+					if (FAILED(hr))
+					{
+						MessageBox(hWnd, L"Load gif file failed. Exiting application.", L"Error", MB_OK);
+						PostQuitMessage(1);
+						return 1;
+					}
+					break;
+
+				case IDM_EXIT:
+					PostMessage(hWnd, WM_CLOSE, 0, 0);
+					break;
+				}
 			}
 			break;
+			*/
+		case WM_SIZE:
+		{
+			UINT uWidth = LOWORD(lParam);
+			UINT uHeight = HIWORD(lParam);
+			OnResize(uWidth, uHeight);
+		}
+		break;
 
-		case IDM_EXIT:
-			PostMessage(hWnd, WM_CLOSE, 0, 0);
-			break;
+		case WM_PAINT:
+		{
+			OnRender();
+			ValidateRect(hWnd, nullptr);
+		}
+		break;
+
+		case WM_DISPLAYCHANGE:
+		{
+			InvalidateRect(hWnd, nullptr, FALSE);
+		}
+		break;
+
+		case WM_DESTROY:
+		{
+			PostQuitMessage(0);
+			return 0;
+		}
+		break;
+
+		case WM_TIMER:
+		{
+			// Timer expired, display the next frame and set a new timer
+			// if needed
+			ComposeNextFrame();
+			InvalidateRect(hWnd, nullptr, FALSE);
+		}
+		break;
+
+		default:
+			return DefWindowProc(hWnd, uMsg, wParam, lParam);
 		}
 	}
-	break;
-	*/
-	case WM_SIZE:
+	catch (const hresult_error& error)
 	{
-		UINT uWidth = LOWORD(lParam);
-		UINT uHeight = HIWORD(lParam);
-		hr = OnResize(uWidth, uHeight);
-	}
-	break;
-
-	case WM_PAINT:
-	{
-		hr = OnRender();
-		ValidateRect(hWnd, nullptr);
-	}
-	break;
-
-	case WM_DISPLAYCHANGE:
-	{
-		InvalidateRect(hWnd, nullptr, FALSE);
-	}
-	break;
-
-	case WM_DESTROY:
-	{
-		PostQuitMessage(0);
-		return 0;
-	}
-	break;
-
-	case WM_TIMER:
-	{
-		// Timer expired, display the next frame and set a new timer
-		// if needed
-		hr = ComposeNextFrame();
-		InvalidateRect(hWnd, nullptr, FALSE);
-	}
-	break;
-
-	default:
-		return DefWindowProc(hWnd, uMsg, wParam, lParam);
-	}
-
-	// In case of a device loss, recreate all the resources and start playing
-	// gif from the beginning
-	//
-	// In case of other errors from resize, paint, and timer event, we will
-	// try our best to continue displaying the animation
-	if (hr == D2DERR_RECREATE_TARGET)
-	{
-		hr = RecoverDeviceResources();
-		if (FAILED(hr))
+		// In case of a device loss, recreate all the resources and start playing
+		// gif from the beginning
+		//
+		// In case of other errors from resize, paint, and timer event, we will
+		// try our best to continue displaying the animation
+		if (error.code() == D2DERR_RECREATE_TARGET)
 		{
-			MessageBox(hWnd, L"Device loss recovery failed. Exiting application.", L"Error", MB_OK);
-			PostQuitMessage(1);
+			try
+			{
+				RecoverDeviceResources();
+			}
+			catch (...)
+			{
+				MessageBox(hWnd, L"Device loss recovery failed. Exiting application.", L"Error", MB_OK);
+				PostQuitMessage(1);
+			}
+		}
+		else
+		{
+			throw;
 		}
 	}
 
@@ -521,158 +481,122 @@ LRESULT DemoApp::WndProc(
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::GetGlobalMetadata()
+void DemoApp::GetGlobalMetadata()
 {
 	PROPVARIANT propValue;
 	PropVariantInit(&propValue);
 	com_ptr<IWICMetadataQueryReader> metadataQueryReader;
 
 	// Get the frame count
-	HRESULT hr = m_decoder->GetFrameCount(&m_cFrames);
-	if (SUCCEEDED(hr))
+	check_hresult(m_decoder->GetFrameCount(&m_cFrames));
+
+	// Create a MetadataQueryReader from the decoder
+	check_hresult(m_decoder->GetMetadataQueryReader(
+		metadataQueryReader.put()));
+
+	// Get background color
+	try
 	{
-		// Create a MetadataQueryReader from the decoder
-		hr = m_decoder->GetMetadataQueryReader(
-			metadataQueryReader.put());
+		GetBackgroundColor(metadataQueryReader.get());
+	}
+	catch (...)
+	{
+		// Default to transparent if failed to get the color
+		m_backgroundColor = D2D1::ColorF(0, 0.f);
 	}
 
-	if (SUCCEEDED(hr))
+	// Get width
+	check_hresult(metadataQueryReader->GetMetadataByName(
+		L"/logscrdesc/Width",
+		&propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI2);
+	m_cxGifImage = propValue.uiVal;
+	PropVariantClear(&propValue);
+
+	// Get height
+	check_hresult(metadataQueryReader->GetMetadataByName(
+		L"/logscrdesc/Height",
+		&propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI2);
+	m_cyGifImage = propValue.uiVal;
+	PropVariantClear(&propValue);
+
+	// Get pixel aspect ratio
+	check_hresult(metadataQueryReader->GetMetadataByName(
+		L"/logscrdesc/PixelAspectRatio",
+		&propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI1);
+	UINT uPixelAspRatio = propValue.bVal;
+
+	if (uPixelAspRatio != 0)
 	{
-		// Get background color
-		if (FAILED(GetBackgroundColor(metadataQueryReader.get())))
+		// Need to calculate the ratio. The value in uPixelAspRatio 
+		// allows specifying widest pixel 4:1 to the tallest pixel of 
+		// 1:4 in increments of 1/64th
+		float pixelAspRatio = (uPixelAspRatio + 15.f) / 64.f;
+
+		// Calculate the image width and height in pixel based on the
+		// pixel aspect ratio. Only shrink the image.
+		if (pixelAspRatio > 1.f)
 		{
-			// Default to transparent if failed to get the color
-			m_backgroundColor = D2D1::ColorF(0, 0.f);
+			m_cxGifImagePixel = m_cxGifImage;
+			m_cyGifImagePixel = static_cast<unsigned int>(m_cyGifImage / pixelAspRatio);
+		}
+		else
+		{
+			m_cxGifImagePixel = static_cast<unsigned int>(m_cxGifImage * pixelAspRatio);
+			m_cyGifImagePixel = m_cyGifImage;
 		}
 	}
-
-	// Get global frame size
-	if (SUCCEEDED(hr))
+	else
 	{
-		// Get width
-		hr = metadataQueryReader->GetMetadataByName(
-			L"/logscrdesc/Width",
-			&propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				m_cxGifImage = propValue.uiVal;
-			}
-			PropVariantClear(&propValue);
-		}
+		// The value is 0, so its ratio is 1
+		m_cxGifImagePixel = m_cxGifImage;
+		m_cyGifImagePixel = m_cyGifImage;
 	}
-
-	if (SUCCEEDED(hr))
-	{
-		// Get height
-		hr = metadataQueryReader->GetMetadataByName(
-			L"/logscrdesc/Height",
-			&propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				m_cyGifImage = propValue.uiVal;
-			}
-			PropVariantClear(&propValue);
-		}
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		// Get pixel aspect ratio
-		hr = metadataQueryReader->GetMetadataByName(
-			L"/logscrdesc/PixelAspectRatio",
-			&propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI1 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				UINT uPixelAspRatio = propValue.bVal;
-
-				if (uPixelAspRatio != 0)
-				{
-					// Need to calculate the ratio. The value in uPixelAspRatio 
-					// allows specifying widest pixel 4:1 to the tallest pixel of 
-					// 1:4 in increments of 1/64th
-					float pixelAspRatio = (uPixelAspRatio + 15.f) / 64.f;
-
-					// Calculate the image width and height in pixel based on the
-					// pixel aspect ratio. Only shrink the image.
-					if (pixelAspRatio > 1.f)
-					{
-						m_cxGifImagePixel = m_cxGifImage;
-						m_cyGifImagePixel = static_cast<unsigned int>(m_cyGifImage / pixelAspRatio);
-					}
-					else
-					{
-						m_cxGifImagePixel = static_cast<unsigned int>(m_cxGifImage * pixelAspRatio);
-						m_cyGifImagePixel = m_cyGifImage;
-					}
-				}
-				else
-				{
-					// The value is 0, so its ratio is 1
-					m_cxGifImagePixel = m_cxGifImage;
-					m_cyGifImagePixel = m_cyGifImage;
-				}
-			}
-			PropVariantClear(&propValue);
-		}
-	}
+	PropVariantClear(&propValue);
 
 	// Get looping information
-	if (SUCCEEDED(hr))
+	// First check to see if the application block in the Application Extension
+	// contains "NETSCAPE2.0" and "ANIMEXTS1.0", which indicates the gif animation
+	// has looping information associated with it.
+	// 
+	// If we fail to get the looping information, loop the animation infinitely.
+	if (SUCCEEDED(metadataQueryReader->GetMetadataByName(
+		L"/appext/application",
+		&propValue)) &&
+		propValue.vt == (VT_UI1 | VT_VECTOR) &&
+		propValue.caub.cElems == 11 &&  // Length of the application block
+		(!memcmp(propValue.caub.pElems, "NETSCAPE2.0", propValue.caub.cElems) ||
+			!memcmp(propValue.caub.pElems, "ANIMEXTS1.0", propValue.caub.cElems)))
 	{
-		// First check to see if the application block in the Application Extension
-		// contains "NETSCAPE2.0" and "ANIMEXTS1.0", which indicates the gif animation
-		// has looping information associated with it.
-		// 
-		// If we fail to get the looping information, loop the animation infinitely.
-		if (SUCCEEDED(metadataQueryReader->GetMetadataByName(
-			L"/appext/application",
-			&propValue)) &&
-			propValue.vt == (VT_UI1 | VT_VECTOR) &&
-			propValue.caub.cElems == 11 &&  // Length of the application block
-			(!memcmp(propValue.caub.pElems, "NETSCAPE2.0", propValue.caub.cElems) ||
-				!memcmp(propValue.caub.pElems, "ANIMEXTS1.0", propValue.caub.cElems)))
+		PropVariantClear(&propValue);
+
+		check_hresult(metadataQueryReader->GetMetadataByName(L"/appext/data", &propValue));
+		//  The data is in the following format:
+		//  byte 0: extsize (must be > 1)
+		//  byte 1: loopType (1 == animated gif)
+		//  byte 2: loop count (least significant byte)
+		//  byte 3: loop count (most significant byte)
+		//  byte 4: set to zero
+		if (propValue.vt == (VT_UI1 | VT_VECTOR) &&
+			propValue.caub.cElems >= 4 &&
+			propValue.caub.pElems[0] > 0 &&
+			propValue.caub.pElems[1] == 1)
 		{
-			PropVariantClear(&propValue);
+			m_uTotalLoopCount = MAKEWORD(propValue.caub.pElems[2],
+				propValue.caub.pElems[3]);
 
-			hr = metadataQueryReader->GetMetadataByName(L"/appext/data", &propValue);
-			if (SUCCEEDED(hr))
+			// If the total loop count is not zero, we then have a loop count
+			// If it is 0, then we repeat infinitely
+			if (m_uTotalLoopCount != 0)
 			{
-				//  The data is in the following format:
-				//  byte 0: extsize (must be > 1)
-				//  byte 1: loopType (1 == animated gif)
-				//  byte 2: loop count (least significant byte)
-				//  byte 3: loop count (most significant byte)
-				//  byte 4: set to zero
-				if (propValue.vt == (VT_UI1 | VT_VECTOR) &&
-					propValue.caub.cElems >= 4 &&
-					propValue.caub.pElems[0] > 0 &&
-					propValue.caub.pElems[1] == 1)
-				{
-					m_uTotalLoopCount = MAKEWORD(propValue.caub.pElems[2],
-						propValue.caub.pElems[3]);
-
-					// If the total loop count is not zero, we then have a loop count
-					// If it is 0, then we repeat infinitely
-					if (m_uTotalLoopCount != 0)
-					{
-						m_fHasLoop = true;
-					}
-				}
+				m_fHasLoop = true;
 			}
 		}
 	}
 
 	PropVariantClear(&propValue);
-	return hr;
 }
 
 /******************************************************************
@@ -686,7 +610,7 @@ HRESULT DemoApp::GetGlobalMetadata()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::GetRawFrame(UINT uFrameIndex)
+void DemoApp::GetRawFrame(UINT uFrameIndex)
 {
 	com_ptr<IWICFormatConverter> converter;
 	com_ptr<IWICBitmapFrameDecode> wicFrame;
@@ -696,160 +620,97 @@ HRESULT DemoApp::GetRawFrame(UINT uFrameIndex)
 	PropVariantInit(&propValue);
 
 	// Retrieve the current frame
-	HRESULT hr = m_decoder->GetFrame(uFrameIndex, wicFrame.put());
-	if (SUCCEEDED(hr))
-	{
-		// Format convert to 32bppPBGRA which D2D expects
-		hr = m_wicFactory->CreateFormatConverter(converter.put());
-	}
+	check_hresult(m_decoder->GetFrame(uFrameIndex, wicFrame.put()));
+	// Format convert to 32bppPBGRA which D2D expects
+	check_hresult(m_wicFactory->CreateFormatConverter(converter.put()));
 
-	if (SUCCEEDED(hr))
-	{
-		hr = converter->Initialize(
-			wicFrame.get(),
-			GUID_WICPixelFormat32bppPBGRA,
-			WICBitmapDitherTypeNone,
-			nullptr,
-			0.f,
-			WICBitmapPaletteTypeCustom);
-	}
+	check_hresult(converter->Initialize(
+		wicFrame.get(),
+		GUID_WICPixelFormat32bppPBGRA,
+		WICBitmapDitherTypeNone,
+		nullptr,
+		0.f,
+		WICBitmapPaletteTypeCustom));
 
-	if (SUCCEEDED(hr))
-	{
-		// Create a D2DBitmap from IWICBitmapSource
-		m_rawFrame = nullptr;
-		hr = m_hwndRT->CreateBitmapFromWicBitmap(
-			converter.get(),
-			nullptr,
-			m_rawFrame.put());
-	}
+	// Create a D2DBitmap from IWICBitmapSource
+	m_rawFrame = nullptr;
+	check_hresult(m_hwndRT->CreateBitmapFromWicBitmap(
+		converter.get(),
+		nullptr,
+		m_rawFrame.put()));
 
-	if (SUCCEEDED(hr))
-	{
-		// Get Metadata Query Reader from the frame
-		hr = wicFrame->GetMetadataQueryReader(frameMetadataQueryReader.put());
-	}
+	// Get Metadata Query Reader from the frame
+	check_hresult(wicFrame->GetMetadataQueryReader(frameMetadataQueryReader.put()));
 
 	// Get the Metadata for the current frame
-	if (SUCCEEDED(hr))
+	check_hresult(frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Left", &propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI2);
+	m_framePosition.left = static_cast<float>(propValue.uiVal);
+	PropVariantClear(&propValue);
+
+	check_hresult(frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Top", &propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI2);
+	m_framePosition.top = static_cast<float>(propValue.uiVal);
+	PropVariantClear(&propValue);
+
+	check_hresult(frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Width", &propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI2);
+	m_framePosition.right = static_cast<float>(propValue.uiVal)
+		+ m_framePosition.left;
+	PropVariantClear(&propValue);
+
+	check_hresult(frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Height", &propValue));
+	WINRT_VERIFY(propValue.vt == VT_UI2);
+	m_framePosition.bottom = static_cast<float>(propValue.uiVal)
+		+ m_framePosition.top;
+	PropVariantClear(&propValue);
+
+	// Get delay from the optional Graphic Control Extension
+	if (SUCCEEDED(frameMetadataQueryReader->GetMetadataByName(
+		L"/grctlext/Delay",
+		&propValue)))
 	{
-		hr = frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Left", &propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				m_framePosition.left = static_cast<float>(propValue.uiVal);
-			}
-			PropVariantClear(&propValue);
-		}
+		WINRT_VERIFY(propValue.vt == VT_UI2);
+		// Convert the delay retrieved in 10 ms units to a delay in 1 ms units
+		check_hresult(UIntMult(propValue.uiVal, 10, &m_uFrameDelay));
+		PropVariantClear(&propValue);
+	}
+	else
+	{
+		// Failed to get delay from graphic control extension. Possibly a
+		// single frame image (non-animated gif)
+		m_uFrameDelay = 0;
 	}
 
-	if (SUCCEEDED(hr))
+#if EXTRA_GIF_DELAY
+	// Insert an artificial delay to ensure rendering for gif with very small
+	// or 0 delay.  This delay number is picked to match with most browsers' 
+	// gif display speed.
+	//
+	// This will defeat the purpose of using zero delay intermediate frames in 
+	// order to preserve compatibility. If this is removed, the zero delay 
+	// intermediate frames will not be visible.
+	if (m_uFrameDelay < 90)
 	{
-		hr = frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Top", &propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				m_framePosition.top = static_cast<float>(propValue.uiVal);
-			}
-			PropVariantClear(&propValue);
-		}
+		m_uFrameDelay = 90;
 	}
+#endif
 
-	if (SUCCEEDED(hr))
+	if (SUCCEEDED(frameMetadataQueryReader->GetMetadataByName(
+		L"/grctlext/Disposal",
+		&propValue)))
 	{
-		hr = frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Width", &propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				m_framePosition.right = static_cast<float>(propValue.uiVal)
-					+ m_framePosition.left;
-			}
-			PropVariantClear(&propValue);
-		}
+		WINRT_VERIFY(propValue.vt == VT_UI1);
+		m_uFrameDisposal = propValue.bVal;
 	}
-
-	if (SUCCEEDED(hr))
+	else
 	{
-		hr = frameMetadataQueryReader->GetMetadataByName(L"/imgdesc/Height", &propValue);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				m_framePosition.bottom = static_cast<float>(propValue.uiVal)
-					+ m_framePosition.top;
-			}
-			PropVariantClear(&propValue);
-		}
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		// Get delay from the optional Graphic Control Extension
-		if (SUCCEEDED(frameMetadataQueryReader->GetMetadataByName(
-			L"/grctlext/Delay",
-			&propValue)))
-		{
-			hr = (propValue.vt == VT_UI2 ? S_OK : E_FAIL);
-			if (SUCCEEDED(hr))
-			{
-				// Convert the delay retrieved in 10 ms units to a delay in 1 ms units
-				hr = UIntMult(propValue.uiVal, 10, &m_uFrameDelay);
-			}
-			PropVariantClear(&propValue);
-		}
-		else
-		{
-			// Failed to get delay from graphic control extension. Possibly a
-			// single frame image (non-animated gif)
-			m_uFrameDelay = 0;
-		}
-
-		if (SUCCEEDED(hr))
-		{
-			// Insert an artificial delay to ensure rendering for gif with very small
-			// or 0 delay.  This delay number is picked to match with most browsers' 
-			// gif display speed.
-			//
-			// This will defeat the purpose of using zero delay intermediate frames in 
-			// order to preserve compatibility. If this is removed, the zero delay 
-			// intermediate frames will not be visible.
-			if (m_uFrameDelay < 90)
-			{
-				m_uFrameDelay = 90;
-			}
-		}
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		if (SUCCEEDED(frameMetadataQueryReader->GetMetadataByName(
-			L"/grctlext/Disposal",
-			&propValue)))
-		{
-			hr = (propValue.vt == VT_UI1) ? S_OK : E_FAIL;
-			if (SUCCEEDED(hr))
-			{
-				m_uFrameDisposal = propValue.bVal;
-			}
-		}
-		else
-		{
-			// Failed to get the disposal method, use default. Possibly a 
-			// non-animated gif.
-			m_uFrameDisposal = DM_UNDEFINED;
-		}
+		// Failed to get the disposal method, use default. Possibly a 
+		// non-animated gif.
+		m_uFrameDisposal = DM_UNDEFINED;
 	}
 
 	PropVariantClear(&propValue);
-
-	return hr;
 }
 
 /******************************************************************
@@ -860,7 +721,7 @@ HRESULT DemoApp::GetRawFrame(UINT uFrameIndex)
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::GetBackgroundColor(
+void DemoApp::GetBackgroundColor(
 	IWICMetadataQueryReader* pMetadataQueryReader)
 {
 	DWORD dwBGColor;
@@ -872,70 +733,41 @@ HRESULT DemoApp::GetBackgroundColor(
 	com_ptr<IWICPalette> wicPalette;
 
 	// If we have a global palette, get the palette and background color
-	HRESULT hr = pMetadataQueryReader->GetMetadataByName(
+	check_hresult(pMetadataQueryReader->GetMetadataByName(
 		L"/logscrdesc/GlobalColorTableFlag",
-		&propVariant);
-	if (SUCCEEDED(hr))
-	{
-		hr = (propVariant.vt != VT_BOOL || !propVariant.boolVal) ? E_FAIL : S_OK;
-		PropVariantClear(&propVariant);
-	}
+		&propVariant));
+	WINRT_VERIFY(propVariant.vt == VT_BOOL && propVariant.boolVal);
+	PropVariantClear(&propVariant);
 
-	if (SUCCEEDED(hr))
-	{
-		// Background color index
-		hr = pMetadataQueryReader->GetMetadataByName(
-			L"/logscrdesc/BackgroundColorIndex",
-			&propVariant);
-		if (SUCCEEDED(hr))
-		{
-			hr = (propVariant.vt != VT_UI1) ? E_FAIL : S_OK;
-			if (SUCCEEDED(hr))
-			{
-				backgroundIndex = propVariant.bVal;
-			}
-			PropVariantClear(&propVariant);
-		}
-	}
+	// Background color index
+	check_hresult(pMetadataQueryReader->GetMetadataByName(
+		L"/logscrdesc/BackgroundColorIndex",
+		&propVariant));
+	WINRT_VERIFY(propVariant.vt == VT_UI1);
+	backgroundIndex = propVariant.bVal;
+	PropVariantClear(&propVariant);
 
 	// Get the color from the palette
-	if (SUCCEEDED(hr))
-	{
-		hr = m_wicFactory->CreatePalette(wicPalette.put());
-	}
+	check_hresult(m_wicFactory->CreatePalette(wicPalette.put()));
 
-	if (SUCCEEDED(hr))
-	{
-		// Get the global palette
-		hr = m_decoder->CopyPalette(wicPalette.get());
-	}
+	// Get the global palette
+	check_hresult(m_decoder->CopyPalette(wicPalette.get()));
 
-	if (SUCCEEDED(hr))
-	{
-		hr = wicPalette->GetColors(
-			ARRAYSIZE(rgColors),
-			rgColors,
-			&cColorsCopied);
-	}
+	check_hresult(wicPalette->GetColors(
+		ARRAYSIZE(rgColors),
+		rgColors,
+		&cColorsCopied));
 
-	if (SUCCEEDED(hr))
-	{
-		// Check whether background color is outside range 
-		hr = (backgroundIndex >= cColorsCopied) ? E_FAIL : S_OK;
-	}
+	// Check whether background color is outside range 
+	WINRT_VERIFY(backgroundIndex < cColorsCopied);
 
-	if (SUCCEEDED(hr))
-	{
-		// Get the color in ARGB format
-		dwBGColor = rgColors[backgroundIndex];
+	// Get the color in ARGB format
+	dwBGColor = rgColors[backgroundIndex];
 
-		// The background color is in ARGB format, and we want to 
-		// extract the alpha value and convert it to float
-		float alpha = (dwBGColor >> 24) / 255.f;
-		m_backgroundColor = D2D1::ColorF(dwBGColor, alpha);
-	}
-
-	return hr;
+	// The background color is in ARGB format, and we want to 
+	// extract the alpha value and convert it to float
+	float alpha = (dwBGColor >> 24) / 255.f;
+	m_backgroundColor = D2D1::ColorF(dwBGColor, alpha);
 }
 
 /******************************************************************
@@ -948,53 +780,47 @@ HRESULT DemoApp::GetBackgroundColor(
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::CalculateDrawRectangle(D2D1_RECT_F& drawRect)
+void DemoApp::CalculateDrawRectangle(D2D1_RECT_F& drawRect)
 {
-	HRESULT hr = S_OK;
 	RECT rcClient;
 
 	// Top and left of the client rectangle are both 0
 	if (!GetClientRect(m_hWnd, &rcClient))
 	{
-		hr = HRESULT_FROM_WIN32(GetLastError());
+		throw_last_error();
 	}
 
-	if (SUCCEEDED(hr))
+	// Calculate the area to display the image
+	// Center the image if the client rectangle is larger
+	drawRect.left = (static_cast<float>(rcClient.right) - m_cxGifImagePixel) / 2.f;
+	drawRect.top = (static_cast<float>(rcClient.bottom) - m_cyGifImagePixel) / 2.f;
+	drawRect.right = drawRect.left + m_cxGifImagePixel;
+	drawRect.bottom = drawRect.top + m_cyGifImagePixel;
+
+	// If the client area is resized to be smaller than the image size, scale
+	// the image, and preserve the aspect ratio
+	auto aspectRatio = static_cast<float>(m_cxGifImagePixel) /
+		static_cast<float>(m_cyGifImagePixel);
+
+	if (drawRect.left < 0)
 	{
-		// Calculate the area to display the image
-		// Center the image if the client rectangle is larger
-		drawRect.left = (static_cast<float>(rcClient.right) - m_cxGifImagePixel) / 2.f;
-		drawRect.top = (static_cast<float>(rcClient.bottom) - m_cyGifImagePixel) / 2.f;
-		drawRect.right = drawRect.left + m_cxGifImagePixel;
-		drawRect.bottom = drawRect.top + m_cyGifImagePixel;
-
-		// If the client area is resized to be smaller than the image size, scale
-		// the image, and preserve the aspect ratio
-		auto aspectRatio = static_cast<float>(m_cxGifImagePixel) /
-			static_cast<float>(m_cyGifImagePixel);
-
-		if (drawRect.left < 0)
-		{
-			auto newWidth = static_cast<float>(rcClient.right);
-			float newHeight = newWidth / aspectRatio;
-			drawRect.left = 0;
-			drawRect.top = (static_cast<float>(rcClient.bottom) - newHeight) / 2.f;
-			drawRect.right = newWidth;
-			drawRect.bottom = drawRect.top + newHeight;
-		}
-
-		if (drawRect.top < 0)
-		{
-			auto newHeight = static_cast<float>(rcClient.bottom);
-			float newWidth = newHeight * aspectRatio;
-			drawRect.left = (static_cast<float>(rcClient.right) - newWidth) / 2.f;
-			drawRect.top = 0;
-			drawRect.right = drawRect.left + newWidth;
-			drawRect.bottom = newHeight;
-		}
+		auto newWidth = static_cast<float>(rcClient.right);
+		float newHeight = newWidth / aspectRatio;
+		drawRect.left = 0;
+		drawRect.top = (static_cast<float>(rcClient.bottom) - newHeight) / 2.f;
+		drawRect.right = newWidth;
+		drawRect.bottom = drawRect.top + newHeight;
 	}
 
-	return hr;
+	if (drawRect.top < 0)
+	{
+		auto newHeight = static_cast<float>(rcClient.bottom);
+		float newWidth = newHeight * aspectRatio;
+		drawRect.left = (static_cast<float>(rcClient.right) - newWidth) / 2.f;
+		drawRect.top = 0;
+		drawRect.right = drawRect.left + newWidth;
+		drawRect.bottom = newHeight;
+	}
 }
 
 /******************************************************************
@@ -1006,26 +832,16 @@ HRESULT DemoApp::CalculateDrawRectangle(D2D1_RECT_F& drawRect)
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::RestoreSavedFrame()
+void DemoApp::RestoreSavedFrame()
 {
-	HRESULT hr = S_OK;
-
 	com_ptr<ID2D1Bitmap> frameToCopyTo = nullptr;
 
-	hr = m_savedFrame ? S_OK : E_FAIL;
+	WINRT_VERIFY(m_savedFrame.get());
 
-	if (SUCCEEDED(hr))
-	{
-		hr = m_frameComposeRT->GetBitmap(frameToCopyTo.put());
-	}
+	check_hresult(m_frameComposeRT->GetBitmap(frameToCopyTo.put()));
 
-	if (SUCCEEDED(hr))
-	{
-		// Copy the whole bitmap
-		hr = frameToCopyTo->CopyFromBitmap(nullptr, m_savedFrame.get(), nullptr);
-	}
-
-	return hr;
+	// Copy the whole bitmap
+	check_hresult(frameToCopyTo->CopyFromBitmap(nullptr, m_savedFrame.get(), nullptr));
 }
 
 /******************************************************************
@@ -1038,7 +854,7 @@ HRESULT DemoApp::RestoreSavedFrame()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::ClearCurrentFrameArea()
+void DemoApp::ClearCurrentFrameArea()
 {
 	m_frameComposeRT->BeginDraw();
 
@@ -1052,7 +868,7 @@ HRESULT DemoApp::ClearCurrentFrameArea()
 	// Remove the clipping
 	m_frameComposeRT->PopAxisAlignedClip();
 
-	return m_frameComposeRT->EndDraw();
+	check_hresult(m_frameComposeRT->EndDraw());
 }
 
 /******************************************************************
@@ -1064,10 +880,8 @@ HRESULT DemoApp::ClearCurrentFrameArea()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::DisposeCurrentFrame()
+void DemoApp::DisposeCurrentFrame()
 {
-	HRESULT hr = S_OK;
-
 	switch (m_uFrameDisposal)
 	{
 	case DM_UNDEFINED:
@@ -1077,19 +891,17 @@ HRESULT DemoApp::DisposeCurrentFrame()
 	case DM_BACKGROUND:
 		// Dispose background
 		// Clear the area covered by the current raw frame with background color
-		hr = ClearCurrentFrameArea();
+		ClearCurrentFrameArea();
 		break;
 	case DM_PREVIOUS:
 		// Dispose previous
 		// We restore the previous composed frame first
-		hr = RestoreSavedFrame();
+		RestoreSavedFrame();
 		break;
 	default:
 		// Invalid disposal method
-		hr = E_FAIL;
+		check_hresult(E_FAIL);
 	}
-
-	return hr;
 }
 
 /******************************************************************
@@ -1102,52 +914,41 @@ HRESULT DemoApp::DisposeCurrentFrame()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::OverlayNextFrame()
+void DemoApp::OverlayNextFrame()
 {
 	// Get Frame information
-	HRESULT hr = GetRawFrame(m_uNextFrameIndex);
-	if (SUCCEEDED(hr))
+	GetRawFrame(m_uNextFrameIndex);
+	// For disposal 3 method, we would want to save a copy of the current
+	// composed frame
+	if (m_uFrameDisposal == DM_PREVIOUS)
 	{
-		// For disposal 3 method, we would want to save a copy of the current
-		// composed frame
-		if (m_uFrameDisposal == DM_PREVIOUS)
-		{
-			hr = SaveComposedFrame();
-		}
+		SaveComposedFrame();
 	}
 
-	if (SUCCEEDED(hr))
+	// Start producing the next bitmap
+	m_frameComposeRT->BeginDraw();
+
+	// If starting a new animation loop
+	if (m_uNextFrameIndex == 0)
 	{
-		// Start producing the next bitmap
-		m_frameComposeRT->BeginDraw();
-
-		// If starting a new animation loop
-		if (m_uNextFrameIndex == 0)
-		{
-			// Draw background and increase loop count
-			m_frameComposeRT->Clear(m_backgroundColor);
-			m_uLoopNumber++;
-		}
-
-		// Produce the next frame
-		m_frameComposeRT->DrawBitmap(
-			m_rawFrame.get(),
-			m_framePosition);
-
-		hr = m_frameComposeRT->EndDraw();
+		// Draw background and increase loop count
+		m_frameComposeRT->Clear(m_backgroundColor);
+		m_uLoopNumber++;
 	}
+
+	// Produce the next frame
+	m_frameComposeRT->DrawBitmap(
+		m_rawFrame.get(),
+		m_framePosition);
+
+	check_hresult(m_frameComposeRT->EndDraw());
 
 	// To improve performance and avoid decoding/composing this frame in the 
 	// following animation loops, the composed frame can be cached here in system 
 	// or video memory.
 
-	if (SUCCEEDED(hr))
-	{
-		// Increase the frame index by 1
-		m_uNextFrameIndex = (++m_uNextFrameIndex) % m_cFrames;
-	}
-
-	return hr;
+	// Increase the frame index by 1
+	m_uNextFrameIndex = (++m_uNextFrameIndex) % m_cFrames;
 }
 
 /******************************************************************
@@ -1160,37 +961,27 @@ HRESULT DemoApp::OverlayNextFrame()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::SaveComposedFrame()
+void DemoApp::SaveComposedFrame()
 {
-	HRESULT hr = S_OK;
-
 	com_ptr<ID2D1Bitmap> frameToBeSaved;
 
-	hr = m_frameComposeRT->GetBitmap(frameToBeSaved.put());
-	if (SUCCEEDED(hr))
+	check_hresult(m_frameComposeRT->GetBitmap(frameToBeSaved.put()));
+	// Create the temporary bitmap if it hasn't been created yet 
+	if (m_savedFrame == nullptr)
 	{
-		// Create the temporary bitmap if it hasn't been created yet 
-		if (m_savedFrame == nullptr)
-		{
-			auto bitmapSize = frameToBeSaved->GetPixelSize();
-			D2D1_BITMAP_PROPERTIES bitmapProp;
-			frameToBeSaved->GetDpi(&bitmapProp.dpiX, &bitmapProp.dpiY);
-			bitmapProp.pixelFormat = frameToBeSaved->GetPixelFormat();
+		auto bitmapSize = frameToBeSaved->GetPixelSize();
+		D2D1_BITMAP_PROPERTIES bitmapProp;
+		frameToBeSaved->GetDpi(&bitmapProp.dpiX, &bitmapProp.dpiY);
+		bitmapProp.pixelFormat = frameToBeSaved->GetPixelFormat();
 
-			hr = m_frameComposeRT->CreateBitmap(
-				bitmapSize,
-				bitmapProp,
-				m_savedFrame.put());
-		}
+		check_hresult(m_frameComposeRT->CreateBitmap(
+			bitmapSize,
+			bitmapProp,
+			m_savedFrame.put()));
 	}
 
-	if (SUCCEEDED(hr))
-	{
-		// Copy the whole bitmap
-		hr = m_savedFrame->CopyFromBitmap(nullptr, frameToBeSaved.get(), nullptr);
-	}
-
-	return hr;
+	// Copy the whole bitmap
+	check_hresult(m_savedFrame->CopyFromBitmap(nullptr, frameToBeSaved.get(), nullptr));
 }
 
 /******************************************************************
@@ -1201,10 +992,8 @@ HRESULT DemoApp::SaveComposedFrame()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::SelectAndDisplayGif()
+void DemoApp::SelectAndDisplayGif()
 {
-	HRESULT hr = S_OK;
-
 	WCHAR szFileName[MAX_PATH];
 	RECT rcClient = {};
 	RECT rcWindow = {};
@@ -1221,64 +1010,47 @@ HRESULT DemoApp::SelectAndDisplayGif()
 
 		// Create a decoder for the gif file
 		m_decoder = nullptr;
-		hr = m_wicFactory->CreateDecoderFromFilename(
+		check_hresult(m_wicFactory->CreateDecoderFromFilename(
 			szFileName,
 			nullptr,
 			GENERIC_READ,
 			WICDecodeMetadataCacheOnLoad,
-			m_decoder.put());
-		if (SUCCEEDED(hr))
+			m_decoder.put()));
+		GetGlobalMetadata();
+
+		rcClient.right = m_cxGifImagePixel;
+		rcClient.bottom = m_cyGifImagePixel;
+
+		if (!AdjustWindowRect(&rcClient, WS_OVERLAPPEDWINDOW, TRUE))
 		{
-			hr = GetGlobalMetadata();
+			throw_last_error();
 		}
 
-		if (SUCCEEDED(hr))
+		// Get the upper left corner of the current window
+		if (!GetWindowRect(m_hWnd, &rcWindow))
 		{
-			rcClient.right = m_cxGifImagePixel;
-			rcClient.bottom = m_cyGifImagePixel;
-
-			if (!AdjustWindowRect(&rcClient, WS_OVERLAPPEDWINDOW, TRUE))
-			{
-				hr = HRESULT_FROM_WIN32(GetLastError());
-			}
+			throw_last_error();
 		}
 
-		if (SUCCEEDED(hr))
-		{
-			// Get the upper left corner of the current window
-			if (!GetWindowRect(m_hWnd, &rcWindow))
-			{
-				hr = HRESULT_FROM_WIN32(GetLastError());
-			}
-		}
+		// Resize the window to fit the gif
+		MoveWindow(
+			m_hWnd,
+			rcWindow.left,
+			rcWindow.top,
+			RectWidth(rcClient),
+			RectHeight(rcClient),
+			TRUE);
 
-		if (SUCCEEDED(hr))
-		{
-			// Resize the window to fit the gif
-			MoveWindow(
-				m_hWnd,
-				rcWindow.left,
-				rcWindow.top,
-				RectWidth(rcClient),
-				RectHeight(rcClient),
-				TRUE);
+		CreateDeviceResources();
 
-			hr = CreateDeviceResources();
-		}
-
-		if (SUCCEEDED(hr))
+		// If we have at least one frame, start playing
+		// the animation from the first frame
+		if (m_cFrames > 0)
 		{
-			// If we have at least one frame, start playing
-			// the animation from the first frame
-			if (m_cFrames > 0)
-			{
-				hr = ComposeNextFrame();
-				InvalidateRect(m_hWnd, nullptr, FALSE);
-			}
+			ComposeNextFrame();
+			InvalidateRect(m_hWnd, nullptr, FALSE);
 		}
 	}
-
-	return hr;
 }
 
 /******************************************************************
@@ -1293,10 +1065,8 @@ HRESULT DemoApp::SelectAndDisplayGif()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::ComposeNextFrame()
+void DemoApp::ComposeNextFrame()
 {
-	HRESULT hr = S_OK;
-
 	// Check to see if the render targets are initialized
 	if (m_hwndRT && m_frameComposeRT)
 	{
@@ -1304,22 +1074,16 @@ HRESULT DemoApp::ComposeNextFrame()
 		KillTimer(m_hWnd, DELAY_TIMER_ID);
 
 		// Compose one frame
-		hr = DisposeCurrentFrame();
-		if (SUCCEEDED(hr))
-		{
-			hr = OverlayNextFrame();
-		}
+		DisposeCurrentFrame();
+		OverlayNextFrame();
 
 		// Keep composing frames until we see a frame with delay greater than
 		// 0 (0 delay frames are the invisible intermediate frames), or until
 		// we have reached the very last frame.
-		while (SUCCEEDED(hr) && m_uFrameDelay == 0 && !IsLastFrame())
+		while (m_uFrameDelay == 0 && !IsLastFrame())
 		{
-			hr = DisposeCurrentFrame();
-			if (SUCCEEDED(hr))
-			{
-				hr = OverlayNextFrame();
-			}
+			DisposeCurrentFrame();
+			OverlayNextFrame();
 		}
 
 		// If we have more frames to play, set the timer according to the delay.
@@ -1331,8 +1095,6 @@ HRESULT DemoApp::ComposeNextFrame()
 			SetTimer(m_hWnd, DELAY_TIMER_ID, m_uFrameDelay, nullptr);
 		}
 	}
-
-	return hr;
 }
 
 /******************************************************************
@@ -1344,7 +1106,7 @@ HRESULT DemoApp::ComposeNextFrame()
 *                                                                 *
 ******************************************************************/
 
-HRESULT DemoApp::RecoverDeviceResources()
+void DemoApp::RecoverDeviceResources()
 {
 	m_hwndRT = nullptr;
 	m_frameComposeRT = nullptr;
@@ -1354,16 +1116,11 @@ HRESULT DemoApp::RecoverDeviceResources()
 	m_uFrameDisposal = DM_NONE;  // No previous frames. Use disposal none.
 	m_uLoopNumber = 0;
 
-	HRESULT hr = CreateDeviceResources();
-	if (SUCCEEDED(hr))
+	CreateDeviceResources();
+	if (m_cFrames > 0)
 	{
-		if (m_cFrames > 0)
-		{
-			// Load the first frame
-			hr = ComposeNextFrame();
-			InvalidateRect(m_hWnd, nullptr, FALSE);
-		}
+		// Load the first frame
+		ComposeNextFrame();
+		InvalidateRect(m_hWnd, nullptr, FALSE);
 	}
-
-	return hr;
 }
