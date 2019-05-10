@@ -75,15 +75,15 @@ private:
 
 	HWND                        m_hWnd;
 
-	ID2D1Factory* m_pD2DFactory;
-	ID2D1HwndRenderTarget* m_pHwndRT;
-	ID2D1BitmapRenderTarget* m_pFrameComposeRT;
-	ID2D1Bitmap* m_pRawFrame;
-	ID2D1Bitmap* m_pSavedFrame;          // The temporary bitmap used for disposal 3 method
+	winrt::com_ptr<ID2D1Factory> m_d2dFactory;
+	winrt::com_ptr<ID2D1HwndRenderTarget> m_hwndRT;
+	winrt::com_ptr<ID2D1BitmapRenderTarget> m_frameComposeRT;
+	winrt::com_ptr<ID2D1Bitmap> m_rawFrame;
+	winrt::com_ptr<ID2D1Bitmap> m_savedFrame;          // The temporary bitmap used for disposal 3 method
 	D2D1_COLOR_F                m_backgroundColor;
 
-	IWICImagingFactory* m_pIWICFactory;
-	IWICBitmapDecoder* m_pDecoder;
+	winrt::com_ptr<IWICImagingFactory> m_wicFactory;
+	winrt::com_ptr<IWICBitmapDecoder> m_decoder;
 
 	unsigned int    m_uNextFrameIndex;
 	unsigned int    m_uTotalLoopCount;  // The number of loops for which the animation will be played
